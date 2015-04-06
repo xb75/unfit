@@ -35,6 +35,8 @@ Include or exclude the distance column.
 Include or exclude the time-stamps column.
 .IP "--time-format <format-string>"
 See strftime(3) manual for format string options.
+.IP "-f, --force-write | --no-force-write"
+Don't overwrite existing files unless the --force-write option is used.
 .IP "-s, --summary"
 Don't extract all the data points, just analyse what's there and provide a summary. One summary per input file, and an overall summary.
 .IP "-h, --help"
@@ -56,9 +58,7 @@ The --time-format option is not implemented.
 .br
 The --missing-seconds option is not implemented.
 .br
-The column inclusion/exclusion options are not implemented.
-.br
-There is no indication what is in each column of output.
+Daylight savings doesn't work (Timezones generally haven't been tested - I live in GMT)
 .SH AUTHOR
 xb75 - https://github.com/xb75/unfit
 .SH NOTES

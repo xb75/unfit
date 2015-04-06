@@ -81,6 +81,7 @@ int g_cadence;
 int g_speed;
 int g_distance;
 int g_heartrate;
+int g_temperature;
 int g_timestamps;
 int g_force_write;
 int g_debug;
@@ -379,7 +380,7 @@ show_data20(struct msg_def *def, const unsigned char *data)
 			else if (name == 13)
 				snap->temperature = value;
 			else if (name == 253)
-				snap->timestamp = value;
+				snap->timestamp = value + 631065600;
 			else if (g_debug)
 				printf("UNK(%d,%d,%d) ", name, size, type);
 		}
@@ -523,6 +524,7 @@ set_default_config(void)
 	g_speed = TRUE;
 	g_distance = TRUE;
 	g_heartrate = TRUE;
+	g_temperature = TRUE;
 	g_timestamps = TRUE;
 	g_force_write = FALSE;
 	g_debug = FALSE;
@@ -554,6 +556,10 @@ parse_config_item(const char *option, const char *next, int cmdline)
 		g_timestamps = FALSE;
 	else if (strcmp(option, "--time-stamps") == 0)
 		g_timestamps = TRUE;
+	else if (strcmp(option, "--no-temperature") == 0)
+		g_temperature = FALSE;
+	else if (strcmp(option, "--temperature") == 0)
+		g_temperature = TRUE;
 	else if (strcmp(option, "--no-heart-rate") == 0)
 		g_heartrate = FALSE;
 	else if (strcmp(option, "--heart-rate") == 0)
@@ -564,6 +570,10 @@ parse_config_item(const char *option, const char *next, int cmdline)
 		g_debug = FALSE;
 	else if (strcmp(option, "--debug") == 0)
 		g_debug = TRUE;
+	else if (strcmp(option, "--no-force-write") == 0)
+		g_force_write = FALSE;
+	else if (strcmp(option, "--force-write") == 0 || strcmp(option, "-f") == 0)
+		g_force_write = TRUE;
 	else if (strcmp(option, "--default-config") == 0)
 		set_default_config();
 	else if (strcmp(option, "--version") == 0 || strcmp(option, "-v") == 0)
@@ -650,11 +660,109 @@ load_server_config(void)
 }
 
 static void
+print_column_headers(FILE *handle)
+{
+	char *columns[10] = { NULL };
+	int i = 0;
+	int j;
+
+	if (g_timestamps)
+		columns[i++] = "Time";
+
+	if (g_heartrate)
+		columns[i++] = "Heart-Rate";
+
+	if (g_cadence)
+		columns[i++] = "Cadence";
+
+	if (g_speed)
+		columns[i++] = "Speed";
+
+	if (g_distance)
+		columns[i++] = "Distance";
+
+	if (g_temperature)
+		columns[i++] = "Temperature";
+
+	if (g_altitude)
+		columns[i++] = "Altitude";
+
+	for (j = 0; j < i-1 ; j++)
+		fprintf(handle, "%s,", columns[j]);
+
+	if (j != 0)
+		fprintf(handle, "%s\n", columns[j]);
+}
+
+static void
+print_row(FILE *handle, struct data_point *snap)
+{
+	char *columns[10] = { NULL };
+	int i = 0;
+	int j;
+	char timestamp[128];
+	char heart_rate[32];
+	char cadence[32];
+	char speed[32];
+	char distance[32];
+	char temperature[32];
+	char altitude[32];
+
+	if (g_timestamps)
+		{
+		get_timestamp(timestamp, sizeof(timestamp), snap->timestamp);
+		columns[i++] = timestamp;
+		}
+
+	if (g_heartrate)
+		{
+		snprintf(heart_rate, sizeof(heart_rate), "%u", snap->heart_rate);
+		columns[i++] = heart_rate;
+		}
+
+	if (g_cadence)
+		{
+		snprintf(cadence, sizeof(cadence), "%u", snap->cadence);
+		columns[i++] = cadence;
+		}
+
+	if (g_speed)
+		{
+		snprintf(speed, sizeof(speed), "%u", snap->speed);
+		columns[i++] = speed;
+		}
+
+	if (g_distance)
+		{
+		snprintf(distance, sizeof(distance), "%u", snap->distance);
+		columns[i++] = distance;
+		}
+
+	if (g_temperature)
+		{
+		snprintf(temperature, sizeof(temperature), "%u", snap->temperature);
+		columns[i++] = temperature;
+		}
+
+	if (g_altitude)
+		{
+		snprintf(altitude, sizeof(altitude), "%u", snap->altitude);
+		columns[i++] = altitude;
+		}
+
+	for (j = 0; j < i-1 ; j++)
+		fprintf(handle, "%s,", columns[j]);
+
+	if (j != 0)
+		fprintf(handle, "%s\n", columns[j]);
+	//fprintf(handle, "%s,%d,%d,%d,%d,%d,%d\n", timestamp, snap->heart_rate, snap->cadence, snap->speed, snap->altitude, snap->distance/100, snap->temperature);
+}
+
+static void
 dump_all_data(void)
 {
 	FILE *handle;
 	struct data_point *snap;
-	char timestamp[128];
 
 	if (g_output == NULL || strcmp(g_output, "-") == 0)
 		handle = stdout;
@@ -676,11 +784,11 @@ dump_all_data(void)
 		}
 	}
 
+	print_column_headers(handle);
+
 	for (snap = g_data.first; snap; snap = snap->next)
-	{
-		get_timestamp(timestamp, sizeof(timestamp), snap->timestamp);
-		fprintf(handle, "%s,%d,%d,%d,%d,%d,%d\n", timestamp, snap->heart_rate, snap->cadence, snap->speed, snap->altitude, snap->distance/100, snap->temperature);
-	}
+		print_row(handle, snap);
+
 	if (handle != stdout)
 		fclose(handle);
 }
