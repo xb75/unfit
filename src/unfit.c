@@ -85,6 +85,7 @@ int g_temperature;
 int g_timestamps;
 int g_force_write;
 int g_debug;
+int g_add_missing;
 char *g_time_format;
 char *g_output;
 
@@ -530,6 +531,7 @@ set_default_config(void)
 	g_timestamps = TRUE;
 	g_force_write = FALSE;
 	g_debug = FALSE;
+	g_add_missing = FALSE;
 
 	g_time_format = NULL;
 	g_output = NULL;
@@ -575,6 +577,8 @@ parse_config_item(const char *option, const char *next, int cmdline)
 		g_debug = FALSE;
 	else if (strcmp(option, "--debug") == 0)
 		g_debug = TRUE;
+	else if (strcmp(option, "--missing-seconds") == 0 || strcmp(option, "-m") == 0)
+		g_add_missing = TRUE;
 	else if (strcmp(option, "--no-force-write") == 0)
 		g_force_write = FALSE;
 	else if (strcmp(option, "--force-write") == 0 || strcmp(option, "-f") == 0)
@@ -762,11 +766,28 @@ print_row(FILE *handle, struct data_point *snap)
 		fprintf(handle, "%s\n", columns[j]);
 }
 
+int
+interpolate(int first, int second, int i, int count)
+{
+	int diff = (second - first) * 100;
+
+	diff *= i;
+	diff /= count;
+
+	diff /= 100;
+	
+	return first + diff;
+}
+
 static void
 dump_all_data(void)
 {
 	FILE *handle;
 	struct data_point *snap;
+	struct data_point *prev;
+	struct data_point rec;
+	int i;
+	int diff;
 
 	if (g_output == NULL || strcmp(g_output, "-") == 0)
 		handle = stdout;
@@ -790,8 +811,28 @@ dump_all_data(void)
 
 	print_column_headers(handle);
 
+	prev = NULL;
 	for (snap = g_data.first; snap; snap = snap->next)
+	{
+		if (g_add_missing && prev && snap->timestamp - prev->timestamp > 1)
+		{
+			diff = snap->timestamp - prev->timestamp;
+			for (i = prev->timestamp + 1 ; i < snap->timestamp ; i++)
+			{
+				/* Generate intermediate data */
+				rec.timestamp = i;
+				rec.speed = interpolate(prev->speed, snap->speed, rec.timestamp - prev->timestamp, diff);
+				rec.heart_rate = interpolate(prev->heart_rate, snap->heart_rate, rec.timestamp - prev->timestamp, diff);
+				rec.cadence = interpolate(prev->cadence, snap->cadence, rec.timestamp - prev->timestamp, diff);
+				rec.distance = interpolate(prev->distance, snap->distance, rec.timestamp - prev->timestamp, diff);
+				rec.temperature = interpolate(prev->temperature, snap->temperature, rec.timestamp - prev->timestamp, diff);
+				rec.altitude = interpolate(prev->altitude, snap->altitude, rec.timestamp - prev->timestamp, diff);
+				print_row(handle, &rec);
+			}
+		}
 		print_row(handle, snap);
+		prev = snap;
+	}
 
 	if (handle != stdout)
 		fclose(handle);
