@@ -374,9 +374,9 @@ show_data20(struct msg_def *def, const unsigned char *data)
 			else if (name == 4)
 				snap->cadence = value;
 			else if (name == 5)
-				snap->distance = value;
+				snap->distance = value / 100; /* Convert to metres */
 			else if (name == 6)
-				snap->speed = value;
+				snap->speed = (value * 3600) / 1000;
 			else if (name == 13)
 				snap->temperature = value;
 			else if (name == 253)
@@ -385,7 +385,6 @@ show_data20(struct msg_def *def, const unsigned char *data)
 				printf("UNK(%d,%d,%d) ", name, size, type);
 		}
 	}
-	/* Distance converted to metres */
 	list_add(&g_data, snap);
 	return data;
 }
@@ -728,13 +727,13 @@ print_row(FILE *handle, struct data_point *snap)
 
 	if (g_speed)
 		{
-		snprintf(speed, sizeof(speed), "%u", snap->speed);
+		snprintf(speed, sizeof(speed), "%0.3f", (float)(snap->speed)/1000);
 		columns[i++] = speed;
 		}
 
 	if (g_distance)
 		{
-		snprintf(distance, sizeof(distance), "%u", snap->distance);
+		snprintf(distance, sizeof(distance), "%0.3f", (float)(snap->distance)/1000);
 		columns[i++] = distance;
 		}
 
@@ -755,7 +754,6 @@ print_row(FILE *handle, struct data_point *snap)
 
 	if (j != 0)
 		fprintf(handle, "%s\n", columns[j]);
-	//fprintf(handle, "%s,%d,%d,%d,%d,%d,%d\n", timestamp, snap->heart_rate, snap->cadence, snap->speed, snap->altitude, snap->distance/100, snap->temperature);
 }
 
 static void
