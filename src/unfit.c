@@ -341,7 +341,10 @@ get_timestamp(char *buf, int bufsz, unsigned int stamp)
 	tt = stamp;
 	tm = gmtime(&tt);
 
-	strftime(buf, bufsz, "%Y-%m-%d %H:%M:%S", tm);
+	if (g_time_format)
+		strftime(buf, bufsz, g_time_format, tm);
+	else
+		strftime(buf, bufsz, "%Y-%m-%d %H:%M:%S", tm);
 }
 
 static const unsigned char *
@@ -563,8 +566,11 @@ parse_config_item(const char *option, const char *next, int cmdline)
 		g_heartrate = FALSE;
 	else if (strcmp(option, "--heart-rate") == 0)
 		g_heartrate = TRUE;
-	else if (strcmp(option, "--time-format") == 0)
-		g_time_format = strdup(option);
+	else if (strcmp(option, "--time-format") == 0 && next && next[0] != '\0')
+	{
+		g_time_format = strdup(next);
+		return 1;
+	}
 	else if (strcmp(option, "--no-debug") == 0)
 		g_debug = FALSE;
 	else if (strcmp(option, "--debug") == 0)
