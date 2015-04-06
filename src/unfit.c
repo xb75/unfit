@@ -3,10 +3,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <pwd.h>
 
 #include <arpa/inet.h>
 
 #define FIT_MAGIC 0x2E464954
+
+#define UNFIT_VERSION "0.1"
+
+#define TRUE 1
+#define FALSE 0
 
 struct gheader
 {
@@ -15,6 +23,18 @@ struct gheader
 	unsigned short profile_version;
 	unsigned int data_size;
 	unsigned int fit;
+};
+
+struct entry
+{
+	struct entry *next;
+	struct entry *prev;
+};
+
+struct list
+{
+	struct entry *first;
+	struct entry *last;
 };
 
 struct msg_def
@@ -33,11 +53,46 @@ struct msg_list
 	struct msg_def *last;
 };
 
+struct data_point
+{
+	struct data_point *next;
+	struct data_point *prev;
+	unsigned int timestamp;
+	unsigned int heart_rate;
+	unsigned int cadence;
+	unsigned int speed;
+	unsigned int distance;
+	unsigned int altitude;
+	unsigned int temperature;
+};
+
+struct data_list
+{
+	struct data_point *first;
+	struct data_point *last;
+};
+
 struct msg_list defines = { NULL, NULL };
+struct data_list g_data = { NULL, NULL };
+
+/* Global variables dictate how program behaves */
+int g_altitude;
+int g_cadence;
+int g_speed;
+int g_distance;
+int g_heartrate;
+int g_timestamps;
+int g_force_write;
+int g_debug;
+char *g_time_format;
+char *g_output;
 
 static void
-add_def(struct msg_list *list, struct msg_def *entry)
+list_add(void *l, void *e)
 {
+	struct list *list = l;
+	struct entry *entry = e;
+
 	if (list->last)
 	{
 		list->last->next = entry;
@@ -72,6 +127,9 @@ dump_defs(struct msg_list *list)
 	struct msg_def *entry;
 	int i = 0;
 	int j;
+
+	if (g_debug == FALSE)
+		return;
 
 	if ((entry = list->first) == NULL)
 	{
@@ -108,7 +166,8 @@ read_header(FILE *fp, struct gheader *header)
 	if (header->size > 12) {
 		fseek(fp, header->size - 12, SEEK_CUR);
 	}
-	printf("Data size: %d\n", header->data_size);
+	if (g_debug)
+		printf("Data size: %d\n", header->data_size);
 
 	return 0;
 }
@@ -178,83 +237,15 @@ create_type(int num, int type, int size, const unsigned char *p)
 			p++;
 		}
 	}
-	add_def(&defines, def);
+	list_add(&defines, def);
 	dump_defs(&defines);
 	return p;
 }
 
-void
-print_name_20(int id)
-{
-	if (id == 3) {
-		printf("{heart-rate}");
-	} else if (id == 6) {
-		printf("{speed}");
-	} else {
-		printf("{%d}", id);
-	}
-}
-
-void
+static void
 print_name(int id)
 {
 	printf("{%d}", id);
-}
-
-static void
-show_msg_20(const unsigned char *data, int type, int name, int size)
-{
-	unsigned short us;
-	short ss;
-	unsigned int u32;
-	int s32;
-	char *x;
-
-	print_name_20(name);
-
-	switch (type)
-	{
-		case 0x00:
-			printf("(enum)%d %02X\n", data[0], data[0]);
-			break;
-		case 0x01:
-			printf("(s8)%d %02X\n", (signed)data[0], data[0]);
-			break;
-		case 0x02:
-			printf("(u8)%d %02X\n", data[0], data[0]);
-			break;
-		case 0x07:
-			x = malloc(size + 1);
-			if (x) {
-				memcpy(x, data, size);
-				x[size] = '\0';
-				printf("(string)%s\n", x);
-				free(x);
-			} else {
-				printf("(string)[malloc(%d+1) failed]\n", size);
-			}
-			break;
-		case 0x83: // 131
-			ss = (int)data[0]*256 + data[1];
-			printf("(short)%d %04X\n", ss, ss);
-			break;
-		case 0x84: // 132
-			us = (unsigned int)data[0]*256 + data[1];
-			printf("(unsigned short)%d %04X\n", us, us);
-			break;
-		case 0x85: // 133
-			s32 = ((int)data[0]<<24) + ((unsigned int)data[1]<<16) + ((unsigned int)data[2] << 8) + data[3];
-			printf("(int32)%d %08X\n", s32, s32);
-			break;
-		case 0x86: // 134
-		case 0x8C: // 140
-			u32 = ((unsigned int)data[0]<<24) + ((unsigned int)data[1]<<16) + ((unsigned int)data[2] << 8) + data[3];
-			printf("(unsigned int32)%d %08X\n", u32, u32);
-			break;
-		default:
-			printf("Unknown type %d %X\n", type, type);
-			break;
-	}
 }
 
 static void
@@ -340,17 +331,6 @@ get_value(int size, int type, const unsigned char *data, void *valuep)
 	return data + size;
 }
 
-struct hr
-{
-	char timestamp[32];
-	int heart_rate;
-	int speed;
-	int cadence;
-	int altitude;
-	int distance;
-	int temperature;
-};
-
 static void
 get_timestamp(char *buf, int bufsz, unsigned int stamp)
 {
@@ -371,11 +351,11 @@ show_data20(struct msg_def *def, const unsigned char *data)
 	int type;
 	int value;
 	int i;
-	struct hr *snap;
+	struct data_point *snap;
 
-	snap = malloc(sizeof(struct hr));
+	snap = malloc(sizeof(struct data_point));
 	if (snap)
-		memset(snap, 0, sizeof(struct hr));
+		memset(snap, 0, sizeof(struct data_point));
 
 
 	for (i=0; i<def->size; i++)
@@ -399,14 +379,13 @@ show_data20(struct msg_def *def, const unsigned char *data)
 			else if (name == 13)
 				snap->temperature = value;
 			else if (name == 253)
-				get_timestamp(snap->timestamp, sizeof(snap->timestamp), value);
-			else
+				snap->timestamp = value;
+			else if (g_debug)
 				printf("UNK(%d,%d,%d) ", name, size, type);
 		}
 	}
-	printf("\n");
-    /* Distance converted to metres */
-	printf("DATA: %s,%d,%d,%d,%d,%d,%d\n", snap->timestamp, snap->heart_rate, snap->cadence, snap->speed, snap->altitude, snap->distance/100, snap->temperature);
+	/* Distance converted to metres */
+	list_add(&g_data, snap);
 	return data;
 }
 
@@ -426,11 +405,8 @@ parse_data(struct msg_def *def, const unsigned char *data)
 	{
 		name = ((def->fields[i] >> 16) & 0xFF);
 		size = ((def->fields[i] >> 8) & 0xFF);
-		if (def->num == 20) {
-			show_msg_20(data, def->fields[i] & 0xFF, name, size);
-		} else {
+		if (g_debug)
 			show_data(data, def->fields[i] & 0xFF, name, size);
-		}
 
 		data += size;
 	}
@@ -449,12 +425,13 @@ parse_record(const unsigned char *data)
 	p = data;
 
 	if ((p[0] & 0x80) == 0x80) {
-		// Abnormal header
-		printf("Abnormal header -- TODO\n");
+		if (g_debug)
+		{
+			printf("Abnormal header -- TODO\n");
+		}
 	} else {
 		// Normal header
 		if ((p[0] & 0x40) == 0x40) {
-			printf("Definition\n");
 			msg_type = p[0] & 0x0F;
 
 			p++;
@@ -470,7 +447,6 @@ parse_record(const unsigned char *data)
 			return p;
 		} else {
 			msg_type = p[0] & 0xF;
-			printf("DATA Message (type = %d)\n", msg_type);
 			def = find_type(&defines, msg_type);
 			if (def == NULL)
 			{
@@ -499,9 +475,8 @@ dump_data(struct gheader *header, const unsigned char *data)
 	p = data;
 	while (p < data + header->data_size)
 	{
-		printf("\nNEXT RECORD @ %08X (%d)\n\n", p-data, p-data);
 		if ((p = parse_record(p)) == NULL) {
-			printf("ERROR\n");
+			printf("unfit: parse error @%d\n", data - p);
 			break;
 		}
 	}
@@ -540,13 +515,199 @@ decode_file(const char *fname)
 	return 0;
 }
 
+static void
+set_default_config(void)
+{
+	g_altitude = TRUE;
+	g_cadence = TRUE;
+	g_speed = TRUE;
+	g_distance = TRUE;
+	g_heartrate = TRUE;
+	g_timestamps = TRUE;
+	g_force_write = FALSE;
+	g_debug = FALSE;
+
+	g_time_format = NULL;
+	g_output = NULL;
+}
+
+static int
+parse_config_item(const char *option, const char *next, int cmdline)
+{
+	if (strcmp(option, "--no-altitude") == 0)
+		g_altitude = FALSE;
+	else if (strcmp(option, "--altitude") == 0)
+		g_altitude = TRUE;
+	else if (strcmp(option, "--no-speed") == 0)
+		g_speed = FALSE;
+	else if (strcmp(option, "--speed") == 0)
+		g_speed = TRUE;
+	else if (strcmp(option, "--no-cadence") == 0)
+		g_cadence = FALSE;
+	else if (strcmp(option, "--cadence") == 0)
+		g_cadence = TRUE;
+	else if (strcmp(option, "--no-distance") == 0)
+		g_distance = FALSE;
+	else if (strcmp(option, "--distance") == 0)
+		g_distance = TRUE;
+	else if (strcmp(option, "--no-time-stamps") == 0)
+		g_timestamps = FALSE;
+	else if (strcmp(option, "--time-stamps") == 0)
+		g_timestamps = TRUE;
+	else if (strcmp(option, "--no-heart-rate") == 0)
+		g_heartrate = FALSE;
+	else if (strcmp(option, "--heart-rate") == 0)
+		g_heartrate = TRUE;
+	else if (strcmp(option, "--time-format") == 0)
+		g_time_format = strdup(option);
+	else if (strcmp(option, "--no-debug") == 0)
+		g_debug = FALSE;
+	else if (strcmp(option, "--debug") == 0)
+		g_debug = TRUE;
+	else if (strcmp(option, "--default-config") == 0)
+		set_default_config();
+	else if (strcmp(option, "--version") == 0 || strcmp(option, "-v") == 0)
+		fprintf(stderr, "unfit: version " UNFIT_VERSION "\n");
+	else if (strcmp(option, "-o") == 0 && next != NULL && next[0] != '\0')
+	{
+		g_output = strdup(next);
+		return 1;
+	}
+	else
+		return -1;
+
+	return 0;
+}
+
+static void
+load_config_file(const char *filename)
+{
+	FILE *fp;
+	char option[256];
+	int line = 0;
+	char *p;
+
+	fp = fopen(filename, "r");
+	if (!fp)
+		return; /* No problem - doesn't need to exist */
+
+	while (fgets(option, sizeof(option), fp) == option)
+	{
+		line++;
+
+		if (option[0])
+			option[strlen(option)-1] = '\0';
+
+		if (option[0] == '#')
+			continue;
+
+		p = option;
+		/* Find second word on line */
+		while (*p != '\0')
+		{
+			if (*p == ' ')
+			{
+				*p = '\0';
+				p++;
+				/* Skip additional spaces */
+				while (*p == ' ')
+					p++;
+				break;
+			}
+			p++;
+		}
+
+		if (parse_config_item(option, p, FALSE) == -1)
+			fprintf(stderr, "Didn't understand line %d in file %s [%s]\n", line, filename, option);
+	}
+	fclose(fp);
+}
+
+static void
+load_personal_config(void)
+{
+	struct passwd passwd;
+	struct passwd *pw;
+	const char *p;
+	char s[384];
+	char cfg_file[384];
+
+	p = getenv("HOME");
+	if (p == NULL)
+	{
+		if (getpwuid_r(getuid(), &passwd, s, sizeof(s), &pw) != 0)
+			return;
+		p = pw->pw_dir;
+	}
+	snprintf(cfg_file, sizeof(cfg_file), "%s/.unfit", p);
+	load_config_file(cfg_file);
+}
+
+static void
+load_server_config(void)
+{
+	load_config_file("/etc/unfit");
+}
+
+static void
+dump_all_data(void)
+{
+	FILE *handle;
+	struct data_point *snap;
+	char timestamp[128];
+
+	if (g_output == NULL || strcmp(g_output, "-") == 0)
+		handle = stdout;
+	else
+	{
+		if (g_force_write == FALSE)
+		{
+			if ((handle = fopen(g_output, "r")) != NULL)
+			{
+				fclose(handle);
+				fprintf(stderr, "unfit ERROR: File exists [%s]\n", g_output);
+				return;
+			}
+		}
+		if ((handle = fopen(g_output, "w")) == NULL)
+		{
+			fprintf(stderr, "unfit ERROR: Can't open file [%s]\n", g_output);
+			return;
+		}
+	}
+
+	for (snap = g_data.first; snap; snap = snap->next)
+	{
+		get_timestamp(timestamp, sizeof(timestamp), snap->timestamp);
+		fprintf(handle, "%s,%d,%d,%d,%d,%d,%d\n", timestamp, snap->heart_rate, snap->cadence, snap->speed, snap->altitude, snap->distance/100, snap->temperature);
+	}
+	if (handle != stdout)
+		fclose(handle);
+}
+
 int
 main(int argc, const char *argv[])
 {
 	int i;
+	int rc;
+
+	set_default_config();
+	load_server_config();
+	load_personal_config();
 
 	for (i=1; i<argc; i++) {
-		decode_file(argv[i]);
+		rc = parse_config_item(argv[i], argv[i+1], TRUE);
+		if (rc == -1)
+			decode_file(argv[i]);
+		else if (rc > 0)
+			i += rc;
 	}
+	dump_all_data();
+
+	if (g_output)
+		free(g_output);
+	if (g_time_format)
+		free(g_time_format);
 	return 0;
 }
+

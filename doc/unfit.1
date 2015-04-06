@@ -19,7 +19,7 @@ Output CSV data to <file> rather than to stdout.
 If multiple input files are specified, all data will be output to this one file.
 .IP "-m, --missing-seconds"
 Add data-points for every second which doesn't have one. This can make further processing in a spread-sheet easier.
-.IP "-n, --???"
+.IP "-c, --default-config"
 Do not scan files "~/.unfit" and "/etc/unfit" for default options
 .IP "--altitude | --no-altitude"
 Include or exclude the altitude column.
@@ -50,13 +50,13 @@ Each line of this file will be processed as if it were an additional option.
 .br
 Options in the ~/.unfit file override options in the /etc/unfit file, and command line options override options in the ~/unfit file.
 .SH BUGS
-The -o option is not implemented.
+The --summary option is not implemented.
 .br
-The -s option is not implemented.
+The --time-format option is not implemented.
 .br
-In fact, none of the options have been implemented yet.
+The --missing-seconds option is not implemented.
 .br
-The program produces lots of spurious output. You need to grep for "^DATA: "
+The column inclusion/exclusion options are not implemented.
 .br
 There is no indication what is in each column of output.
 .SH AUTHOR
