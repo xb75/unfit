@@ -1,0 +1,67 @@
+.TH unfit 1 "6/April/2015" "Version 0.1"
+.SH NAME
+unfit - extract useful information from FIT files.
+.SH SYNOPSIS
+.B unfit [OPTIONS] FILE...
+.SH DESCRIPTION
+.PP
+Process FIT file(s) to extract the useful information.
+.PP
+.IP "The following data is extracted if available:"
+Heart-rate
+Speed
+Cadence
+Altitude
+.SH OPTIONS
+.IP "-o <file>"
+Output CSV data to <file> rather than to stdout.
+.br
+If multiple input files are specified, all data will be output to this one file.
+.IP "-m, --missing-seconds"
+Add data-points for every second which doesn't have one. This can make further processing in a spread-sheet easier.
+.IP "-n, --???"
+Do not scan files "~/.unfit" and "/etc/unfit" for default options
+.IP "--altitude | --no-altitude"
+Include or exclude the altitude column.
+.IP "--heart-rate | --no-heart-rate"
+Include or exclude the heart-rate column.
+.IP "--cadence | --no-cadence"
+Include or exclude the cadence column.
+.IP "--speed | --no-speed"
+Include or exclude the speed column.
+.IP "--distance | --no-distance"
+Include or exclude the distance column.
+.IP "--time-stamps | --no-time-stamps"
+Include or exclude the time-stamps column.
+.IP "--time-format <format-string>"
+See strftime(3) manual for format string options.
+.IP "-s, --summary"
+Don't extract all the data points, just analyse what's there and provide a summary. One summary per input file, and an overall summary.
+.IP "-h, --help"
+A small reminder of the command-line options.
+.IP "-v, --version"
+The version. Note that this documentation is for version 0.1
+.IP "--debug | --no-debug"
+Turn on/off extra verbose output. (Really just used for debugging).
+.SH FILES
+.IP "~/.unfit"
+.IP "/etc/unfit"
+Each line of this file will be processed as if it were an additional option.
+.br
+Options in the ~/.unfit file override options in the /etc/unfit file, and command line options override options in the ~/unfit file.
+.SH BUGS
+The -o option is not implemented.
+.br
+The -s option is not implemented.
+.br
+In fact, none of the options have been implemented yet.
+.br
+The program produces lots of spurious output. You need to grep for "^DATA: "
+.br
+There is no indication what is in each column of output.
+.SH AUTHOR
+xb75 - https://github.com/xb75/unfit
+.SH NOTES
+This command has been designed to work with files produced by a Garmin Edge 510. Other devices may produce files which work to varying degrees.
+.SH SEE ALSO
+strftime(3)
