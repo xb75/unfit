@@ -855,7 +855,8 @@ main(int argc, const char *argv[])
 		else if (rc > 0)
 			i += rc;
 	}
-	dump_all_data();
+	if (g_data.first)
+		dump_all_data();
 
 	if (g_output)
 		free(g_output);
