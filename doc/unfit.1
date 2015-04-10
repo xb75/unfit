@@ -44,8 +44,12 @@ Include or exclude the time-stamps column.
 See strftime(3) manual for format string options.
 .IP "-f, --force-write | --no-force-write"
 Don't overwrite existing files unless the --force-write option is used.
-.IP "-s, --summary"
-Don't extract all the data points, just analyse what's there and provide a summary. One summary per input file, and an overall summary.
+.IP "--summary-only"
+Don't extract all the data points, just analyse what's there and provide a summary. One summary per input file.
+.IP "--summary"
+Extract summary information from each file.
+.IP "--no-summary"
+Just extract the data points, don't provide a summary.
 .IP "-h, --help"
 A small reminder of the command-line options.
 .IP "-v, --version"
@@ -59,9 +63,9 @@ Each line of this file will be processed as if it were an additional option.
 .br
 Options in the ~/.unfit file override options in the /etc/unfit file, and command line options override options in the ~/unfit file.
 .SH BUGS
-The --summary option is not implemented.
-.br
 Daylight savings doesn't work (Timezones generally haven't been tested - I live in GMT)
+.br
+Summary option is experimental.
 .SH AUTHOR
 xb75 - https://github.com/xb75/unfit
 .SH NOTES

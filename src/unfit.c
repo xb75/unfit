@@ -86,6 +86,7 @@ int g_timestamps;
 int g_force_write;
 int g_debug;
 int g_add_missing;
+int g_summary;
 char *g_time_format;
 char *g_output;
 
@@ -323,6 +324,7 @@ get_value(int size, int type, const unsigned char *data, void *valuep)
 		case 0x84: // 132
 			*intp = data[1]*256 + data[0];
 			break;
+		case 0x85: // 133
 		case 0x86: // 134
 			*intp = data[3]*256*256*256 + data[2]*256*256 + data[1]*256 + data[0];
 			break;
@@ -333,19 +335,72 @@ get_value(int size, int type, const unsigned char *data, void *valuep)
 	return data + size;
 }
 
-static void
+static char *
 get_timestamp(char *buf, int bufsz, unsigned int stamp)
 {
 	struct tm *tm;
 	time_t tt;
 
-	tt = stamp;
+
+	tt = stamp + 631065600;
 	tm = gmtime(&tt);
 
 	if (g_time_format)
 		strftime(buf, bufsz, g_time_format, tm);
 	else
 		strftime(buf, bufsz, "%Y-%m-%d %H:%M:%S", tm);
+
+	return buf;
+}
+
+struct summary
+{
+	int start_time;
+	int end_time;
+	int avg_heart;
+	int max_heart;
+};
+
+static void
+show_summary(const char *file, struct summary *sum)
+{
+	char buff[128];
+
+	printf("File Name: %s\n", file);
+	printf("End Time: %s\n", get_timestamp(buff, sizeof(buff), sum->end_time));
+	printf("Average Heart Rate: %d\n", sum->avg_heart);
+	printf("Max Heart Rate: %d\n", sum->max_heart);
+}
+
+static const unsigned char *
+show_data18(const char *file, struct msg_def *def, const unsigned char *data)
+{
+	struct summary sum;
+	int name;
+	int size;
+	int type;
+	int value;
+	int i;
+
+	memset(&sum, 0, sizeof(struct summary));
+	for (i=0; i<def->size; i++)
+	{
+		name = ((def->fields[i] >> 16) & 0xFF);
+		size = ((def->fields[i] >> 8) & 0xFF);
+		type = ((def->fields[i]) & 0xFF);
+		data = get_value(size, type, data, &value);
+		if (name == 253)
+			sum.end_time = value;
+		else if (name == 16)
+			sum.avg_heart = value;
+		else if (name == 17)
+			sum.max_heart = value;
+		else if (g_debug)
+			printf("UNK 18(%d,%d,%d) = %d\n", name, size, type, value);
+	}
+	if (g_summary != 0)
+		show_summary(file, &sum);
+	return data;
 }
 
 static const unsigned char *
@@ -384,7 +439,7 @@ show_data20(struct msg_def *def, const unsigned char *data)
 			else if (name == 13)
 				snap->temperature = value;
 			else if (name == 253)
-				snap->timestamp = value + 631065600;
+				snap->timestamp = value;
 			else if (g_debug)
 				printf("UNK(%d,%d,%d) ", name, size, type);
 		}
@@ -394,45 +449,59 @@ show_data20(struct msg_def *def, const unsigned char *data)
 }
 
 const unsigned char *
-parse_data(struct msg_def *def, const unsigned char *data)
+parse_data(const char *file, struct msg_def *def, const unsigned char *data)
 {
 	int i;
 	int size;
 	int name;
 
-	if (def->num == 20)
+	switch (def->num)
 	{
-		return show_data20(def, data);
-	}
+		case 18:
+			data = show_data18(file, def, data);
+			break;
 
-	for (i=0; i<def->size; i++)
-	{
-		name = ((def->fields[i] >> 16) & 0xFF);
-		size = ((def->fields[i] >> 8) & 0xFF);
-		if (g_debug)
-			show_data(data, def->fields[i] & 0xFF, name, size);
+		case 20:
+			data = show_data20(def, data);
+			break;
 
-		data += size;
+		default:
+			if (g_debug)
+				printf("[type %d]", def->num);
+			for (i=0; i<def->size; i++)
+			{
+				name = ((def->fields[i] >> 16) & 0xFF);
+				size = ((def->fields[i] >> 8) & 0xFF);
+				if (g_debug)
+					show_data(data, def->fields[i] & 0xFF, name, size);
+
+				data += size;
+			}
+			break;
 	}
 	return data;
 }
 
 const unsigned char *
-parse_record(const unsigned char *data)
+parse_record(const char *file, const unsigned char *data)
 {
 	struct msg_def *def;
 	const unsigned char *p;
 	int n_fields;
 	int msg_num;
 	int msg_type;
+	int offset;
 
 	p = data;
 
 	if ((p[0] & 0x80) == 0x80) {
+		msg_type = (p[0] >> 5) & 3;
+		offset = p[0] & 0x1F;
 		if (g_debug)
 		{
-			printf("Abnormal header -- TODO\n");
+			printf("Offset Timestamp: %d %d\n", msg_type, offset);
 		}
+		return p+1;
 	} else {
 		// Normal header
 		if ((p[0] & 0x40) == 0x40) {
@@ -458,7 +527,7 @@ parse_record(const unsigned char *data)
 			}
 			else
 			{
-				p = parse_data(def, p+1);
+				p = parse_data(file, def, p+1);
 				return p;
 			}
 		}
@@ -472,14 +541,14 @@ parse_record(const unsigned char *data)
 }
 
 int
-dump_data(struct gheader *header, const unsigned char *data)
+extract_data(const char *file, struct gheader *header, const unsigned char *data)
 {
 	const unsigned char *p;
 
 	p = data;
 	while (p < data + header->data_size)
 	{
-		if ((p = parse_record(p)) == NULL) {
+		if ((p = parse_record(file, p)) == NULL) {
 			printf("unfit: parse error @%d\n", data - p);
 			break;
 		}
@@ -512,7 +581,7 @@ decode_file(const char *fname)
 		return -1;
 	}
 
-	dump_data(&header, data);
+	extract_data(fname, &header, data);
 	free(data);
 
 	fclose(fp);
@@ -532,6 +601,7 @@ set_default_config(void)
 	g_force_write = FALSE;
 	g_debug = FALSE;
 	g_add_missing = FALSE;
+	g_summary = 0;
 
 	g_time_format = NULL;
 	g_output = NULL;
@@ -581,6 +651,12 @@ parse_config_item(const char *option, const char *next, int cmdline)
 		g_add_missing = TRUE;
 	else if (strcmp(option, "--no-force-write") == 0)
 		g_force_write = FALSE;
+	else if (strcmp(option, "--no-summary") == 0)
+		g_summary = 0;
+	else if (strcmp(option, "--summary") == 0)
+		g_summary = 1;
+	else if (strcmp(option, "--summary-only") == 0)
+		g_summary = 2;
 	else if (strcmp(option, "--force-write") == 0 || strcmp(option, "-f") == 0)
 		g_force_write = TRUE;
 	else if (strcmp(option, "--default-config") == 0)
@@ -855,7 +931,8 @@ main(int argc, const char *argv[])
 		else if (rc > 0)
 			i += rc;
 	}
-	if (g_data.first)
+	/* Only dump the main data if there is some, and we haven't asked for summary-only */
+	if (g_data.first && g_summary != 2)
 		dump_all_data();
 
 	if (g_output)
