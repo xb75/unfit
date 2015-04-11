@@ -114,12 +114,12 @@ find_type(struct msg_list *list, unsigned int type)
 {
 	struct msg_def *entry;
 
-	entry = list->first;
+	entry = list->last;
 	while (entry)
 	{
 		if (entry->type == type)
 			return entry;
-		entry = entry->next;
+		entry = entry->prev;
 	}
 	return NULL;
 }
