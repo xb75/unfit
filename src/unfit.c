@@ -446,10 +446,10 @@ show_data18(const char *file, struct msg_def *def, const unsigned char *data)
 		} else if (name == 17) {
 			sum.max_heart = value;
 			sum.contents |= SUMM_MAX_HEART;
-		} else if (name == 18) {
+		} else if (name == 18 && value != 255) {
 			sum.avg_cadence = value;
 			sum.contents |= SUMM_AVG_CADENCE;
-		} else if (name == 19) {
+		} else if (name == 19 && value != 255) {
 			sum.max_cadence = value;
 			sum.contents |= SUMM_MAX_CADENCE;
 		} else if (g_debug) {
