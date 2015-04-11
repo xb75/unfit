@@ -353,12 +353,30 @@ get_timestamp(char *buf, int bufsz, unsigned int stamp)
 	return buf;
 }
 
+#define SUMM_END_TIME		(1<<0)
+#define SUMM_START_TIME		(1<<1)
+#define SUMM_AVG_HEART		(1<<2)
+#define SUMM_MAX_HEART		(1<<3)
+#define SUMM_DISTANCE		(1<<4)
+#define SUMM_CALORIES		(1<<5)
+#define SUMM_AVG_SPEED		(1<<6)
+#define SUMM_MAX_SPEED		(1<<7)
+#define SUMM_AVG_CADENCE	(1<<8)
+#define SUMM_MAX_CADENCE	(1<<9)
+
 struct summary
 {
+	int contents;
 	int start_time;
 	int end_time;
 	int avg_heart;
 	int max_heart;
+	int distance;
+	int calories;
+	int avg_speed;
+	int max_speed;
+	int avg_cadence;
+	int max_cadence;
 };
 
 static void
@@ -366,10 +384,28 @@ show_summary(const char *file, struct summary *sum)
 {
 	char buff[128];
 
-	printf("File Name: %s\n", file);
-	printf("End Time: %s\n", get_timestamp(buff, sizeof(buff), sum->end_time));
-	printf("Average Heart Rate: %d\n", sum->avg_heart);
-	printf("Max Heart Rate: %d\n", sum->max_heart);
+	printf("File Name: %s (%08X)\n", file, sum->contents);
+	if (sum->contents & SUMM_END_TIME)
+		printf("End Time: %s\n", get_timestamp(buff, sizeof(buff), sum->end_time));
+	if (sum->contents & SUMM_AVG_HEART)
+		printf("Average Heart Rate: %d\n", sum->avg_heart);
+	if (sum->contents & SUMM_MAX_HEART)
+		printf("Max Heart Rate: %d\n", sum->max_heart);
+	if (sum->contents & SUMM_DISTANCE)
+		printf("Distance: %0.3f\n", (float)sum->distance/1000);
+	if (sum->contents & SUMM_CALORIES)
+		printf("Calories: %d\n", sum->calories);
+	/*
+	if (sum->contents & SUMM_AVG_SPEED)
+		printf("Average Speed: %0.3f\n", (float)sum->avg_speed);
+	if (sum->contents & SUMM_MAX_SPEED)
+		printf("Max Speed: %0.3f\n", (float)sum->max_speed);
+	*/
+	if (sum->contents & SUMM_AVG_CADENCE)
+		printf("Average Cadence: %d\n", sum->avg_cadence);
+	if (sum->contents & SUMM_MAX_CADENCE)
+		printf("Max Cadence: %d\n", sum->max_cadence);
+	printf("\n");
 }
 
 static const unsigned char *
@@ -389,14 +425,36 @@ show_data18(const char *file, struct msg_def *def, const unsigned char *data)
 		size = ((def->fields[i] >> 8) & 0xFF);
 		type = ((def->fields[i]) & 0xFF);
 		data = get_value(size, type, data, &value);
-		if (name == 253)
+		if (name == 253) {
 			sum.end_time = value;
-		else if (name == 16)
+			sum.contents |= SUMM_END_TIME;
+		} else if (name == 9) {
+			sum.distance = value/100; /* Convert to metres */
+			sum.contents |= SUMM_DISTANCE;
+		} else if (name == 11) {
+			sum.calories = value;
+			sum.contents |= SUMM_CALORIES;
+		} else if (name == 14) {
+			sum.avg_speed = value;
+			sum.contents |= SUMM_AVG_SPEED;
+		} else if (name == 15) {
+			sum.max_speed = value;
+			sum.contents |= SUMM_MAX_SPEED;
+		} else if (name == 16) {
 			sum.avg_heart = value;
-		else if (name == 17)
+			sum.contents |= SUMM_AVG_HEART;
+		} else if (name == 17) {
 			sum.max_heart = value;
-		else if (g_debug)
+			sum.contents |= SUMM_MAX_HEART;
+		} else if (name == 18) {
+			sum.avg_cadence = value;
+			sum.contents |= SUMM_AVG_CADENCE;
+		} else if (name == 19) {
+			sum.max_cadence = value;
+			sum.contents |= SUMM_MAX_CADENCE;
+		} else if (g_debug) {
 			printf("UNK 18(%d,%d,%d) = %d\n", name, size, type, value);
+		}
 	}
 	if (g_summary != 0)
 		show_summary(file, &sum);
